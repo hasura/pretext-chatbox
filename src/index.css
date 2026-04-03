@@ -53,6 +53,29 @@ body {
   font-size: 14px;
 }
 
+.app__presets {
+  padding: 8px 16px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.app__preset-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  border: 1px solid #333;
+  background: #1a1a1a;
+  color: #aaa;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.app__preset-btn:hover {
+  background: #252525;
+  color: #e5e5e5;
+}
+
 .message {
   align-self: flex-end;
   max-width: 80%;
@@ -74,7 +97,8 @@ body {
   border-top: 1px solid #222;
 }
 
-/* Hybrid chatbox */
+/* ─── Hybrid Chatbox ──────────────────────────────────────────────────────── */
+
 .hybrid-chatbox {
   position: relative;
   border: 1px solid #333;
@@ -82,6 +106,7 @@ body {
   background: #141414;
   transition: border-color 0.15s, height 0.1s ease-out;
   overflow: hidden;
+  cursor: text;
 }
 
 .hybrid-chatbox--focused {
@@ -89,44 +114,102 @@ body {
   box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.15);
 }
 
-/* Shared text style for both layers */
-.hybrid-chatbox__overlay,
-.hybrid-chatbox__editable {
+/* Hidden textarea — captures all native input */
+.hybrid-chatbox__textarea {
   position: absolute;
   inset: 0;
+  width: 100%;
+  height: 100%;
   padding: 12px 16px;
   font: 16px Inter, -apple-system, BlinkMacSystemFont, sans-serif;
   line-height: 24px;
+  background: transparent;
+  border: none;
+  outline: none;
+  resize: none;
+  color: transparent;
+  caret-color: #4a9eff;
+  z-index: 2;
   white-space: pre-wrap;
   word-break: break-word;
   overflow-wrap: break-word;
 }
 
-/* Visible text layer */
-.hybrid-chatbox__overlay {
+.hybrid-chatbox__textarea::selection {
+  background: rgba(74, 158, 255, 0.3);
+}
+
+/* ─── Rich Overlay ────────────────────────────────────────────────────────── */
+
+.rich-overlay {
+  position: absolute;
+  inset: 0;
+  padding: 12px 16px;
   pointer-events: none;
-  color: #e5e5e5;
   z-index: 1;
+}
+
+.rich-overlay__text {
+  font: 16px Inter, -apple-system, BlinkMacSystemFont, sans-serif;
+  line-height: 24px;
+  color: #e5e5e5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Custom cursor (blinking caret) */
+.rich-overlay__cursor {
+  position: absolute;
+  width: 2px;
+  height: 20px;
+  background: #4a9eff;
+  border-radius: 1px;
+  animation: cursor-blink 1s step-end infinite;
+  pointer-events: none;
+}
+
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
 }
 
 .hybrid-chatbox__placeholder {
   color: #555;
 }
 
-/* Input layer - transparent text, visible caret */
-.hybrid-chatbox__editable {
-  color: transparent;
-  caret-color: #4a9eff;
-  outline: none;
-  z-index: 2;
-  overflow-y: auto;
+/* ─── Mention Pills ───────────────────────────────────────────────────────── */
+
+.mention-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 22px;
+  vertical-align: baseline;
+  white-space: nowrap;
+  user-select: none;
 }
 
-/* Selection styling - semi-transparent so overlay text shows through */
-.hybrid-chatbox__editable::selection {
-  background: rgba(74, 158, 255, 0.3);
+.mention-pill--user {
+  background: rgba(74, 144, 226, 0.2);
+  color: #6cb4ff;
 }
 
-.hybrid-chatbox__editable *::selection {
-  background: rgba(74, 158, 255, 0.3);
+.mention-pill--promptql {
+  background: rgba(168, 85, 247, 0.2);
+  color: #c084fc;
+}
+
+.mention-pill__icon {
+  font-weight: 600;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.mention-pill__name {
+  font-size: 14px;
 }

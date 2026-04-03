@@ -1,95 +1,172 @@
 import { useRef, useState, useCallback, useEffect, type KeyboardEvent } from 'react'
-import { prepare, layout } from '@chenglou/pretext'
+import { parseDocument } from './core/parser.js'
+import { buildPositionMap, toVisualText, positionToVisual } from './core/position-map.js'
+import { movePosition, documentStart, documentEnd, moveCursor } from './core/cursor.js'
+import { collapsedSelection, type Selection, type Document, type PositionMap } from './types/document.js'
+import { RichOverlay, computeRichHeight } from './components/RichOverlay.js'
 
-const FONT = '16px Inter, -apple-system, BlinkMacSystemFont, sans-serif'
-const LINE_HEIGHT = 24
-const PADDING_Y = 12
+const MIN_HEIGHT = 48
 const PADDING_X = 16
-const MIN_HEIGHT = LINE_HEIGHT + PADDING_Y * 2
-const MAX_LINES = 10
 
 type Props = {
-  onSend: (text: string) => void
+  onSend: (source: string) => void
   placeholder?: string
+  initialSource?: string
 }
 
-export function HybridChatbox({ onSend, placeholder = 'Type a message...' }: Props) {
-  const editableRef = useRef<HTMLDivElement>(null)
-  const overlayRef = useRef<HTMLDivElement>(null)
+export function HybridChatbox({
+  onSend,
+  placeholder = 'Type a message...',
+  initialSource = '',
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const [text, setText] = useState('')
-  const [height, setHeight] = useState(MIN_HEIGHT)
-  const [focused, setFocused] = useState(false)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const computeHeight = useCallback((value: string, width: number) => {
-    if (!value || width <= 0) return MIN_HEIGHT
-    const prepared = prepare(value, FONT, { whiteSpace: 'pre-wrap' })
-    const result = layout(prepared, width, LINE_HEIGHT)
-    const clampedLines = Math.min(result.lineCount, MAX_LINES)
-    return clampedLines * LINE_HEIGHT + PADDING_Y * 2
+  // Core state: raw source string is the single source of truth
+  const [source, setSource] = useState(initialSource)
+
+  // Derived state: parsed document + position map + selection
+  const [doc, setDoc] = useState<Document>(() => parseDocument(initialSource))
+  const [posMap, setPosMap] = useState<PositionMap>(() => buildPositionMap(parseDocument(initialSource)))
+  const [selection, setSelection] = useState<Selection>(() =>
+    collapsedSelection(documentStart(parseDocument(initialSource)))
+  )
+  const [focused, setFocused] = useState(false)
+  const [height, setHeight] = useState(MIN_HEIGHT)
+
+  // Re-parse when source changes
+  const updateFromSource = useCallback((newSource: string) => {
+    setSource(newSource)
+    const newDoc = parseDocument(newSource)
+    const newMap = buildPositionMap(newDoc)
+    setDoc(newDoc)
+    setPosMap(newMap)
+    // Move cursor to end
+    setSelection(collapsedSelection(documentEnd(newDoc)))
+    // Update height
+    const containerWidth = containerRef.current?.clientWidth ?? 0
+    const visualText = toVisualText(newDoc)
+    setHeight(computeRichHeight(visualText, containerWidth))
   }, [])
 
-  const syncText = useCallback(() => {
-    const el = editableRef.current
-    if (!el) return
-    // Use innerText to preserve newlines from contenteditable
-    const value = el.innerText ?? ''
-    setText(value)
+  // Handle textarea input
+  const handleInput = useCallback(() => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    updateFromSource(textarea.value)
+  }, [updateFromSource])
 
-    const containerWidth = containerRef.current?.clientWidth ?? 0
-    const textWidth = containerWidth - PADDING_X * 2
-    setHeight(computeHeight(value, textWidth))
-  }, [computeHeight])
+  // Handle keyboard navigation with atomic skip
+  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Send on Enter (without Shift)
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      const trimmed = source.trim()
+      if (!trimmed) return
+      onSend(trimmed)
+      if (textareaRef.current) textareaRef.current.value = ''
+      updateFromSource('')
+      return
+    }
 
-  // Recompute height on resize
+    // Arrow key navigation with atomic skip
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      const dir = e.key === 'ArrowLeft' ? 'left' as const : 'right' as const
+      const hasMentions = doc.segments.some(s => s.kind === 'mention')
+
+      if (hasMentions) {
+        e.preventDefault()
+        const newSel = moveCursor(doc, selection, dir, e.shiftKey)
+        setSelection(newSel)
+
+        // Sync textarea cursor to match the new position
+        const textarea = textareaRef.current
+        if (textarea) {
+          const visualPos = positionToVisual(posMap, newSel.focus)
+          textarea.setSelectionRange(visualPos, visualPos)
+        }
+      }
+      // If no mentions, let native textarea handle arrows
+    }
+
+    // Home: go to document start
+    if (e.key === 'Home' && doc.segments.some(s => s.kind === 'mention')) {
+      e.preventDefault()
+      const start = documentStart(doc)
+      setSelection(e.shiftKey
+        ? { anchor: selection.anchor, focus: start }
+        : collapsedSelection(start)
+      )
+    }
+
+    // End: go to document end
+    if (e.key === 'End' && doc.segments.some(s => s.kind === 'mention')) {
+      e.preventDefault()
+      const end = documentEnd(doc)
+      setSelection(e.shiftKey
+        ? { anchor: selection.anchor, focus: end }
+        : collapsedSelection(end)
+      )
+    }
+  }, [source, doc, posMap, selection, onSend, updateFromSource])
+
+  // Resize handler
   useEffect(() => {
     const handleResize = () => {
       const containerWidth = containerRef.current?.clientWidth ?? 0
-      const textWidth = containerWidth - PADDING_X * 2
-      setHeight(computeHeight(text, textWidth))
+      const visualText = toVisualText(doc)
+      setHeight(computeRichHeight(visualText, containerWidth))
     }
     window.addEventListener('resize', handleResize)
     return () => window.removeEventListener('resize', handleResize)
-  }, [text, computeHeight])
+  }, [doc])
 
-  const handleKeyDown = useCallback((e: KeyboardEvent<HTMLDivElement>) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      const value = editableRef.current?.innerText?.trim() ?? ''
-      if (!value) return
-      onSend(value)
-      if (editableRef.current) {
-        editableRef.current.textContent = ''
-      }
-      setText('')
-      setHeight(MIN_HEIGHT)
+  // Sync textarea value when source changes externally
+  useEffect(() => {
+    if (textareaRef.current && textareaRef.current.value !== source) {
+      textareaRef.current.value = source
     }
-  }, [onSend])
+  }, [source])
 
-  const showPlaceholder = !text
+  const containerWidth = containerRef.current?.clientWidth ?? 0
+  const visualText = toVisualText(doc)
+  const showPlaceholder = visualText.length === 0
 
   return (
     <div
       ref={containerRef}
       className={`hybrid-chatbox ${focused ? 'hybrid-chatbox--focused' : ''}`}
       style={{ height }}
+      onClick={() => textareaRef.current?.focus()}
     >
-      {/* Pretext-rendered overlay (visible text) */}
-      <div ref={overlayRef} className="hybrid-chatbox__overlay" aria-hidden>
-        {text || (showPlaceholder ? <span className="hybrid-chatbox__placeholder">{placeholder}</span> : null)}
-      </div>
+      {/* Rich overlay with mention pills and custom cursor */}
+      {showPlaceholder ? (
+        <div className="rich-overlay" aria-hidden>
+          <div className="rich-overlay__text">
+            <span className="hybrid-chatbox__placeholder">{placeholder}</span>
+          </div>
+        </div>
+      ) : (
+        <RichOverlay
+          doc={doc}
+          posMap={posMap}
+          selection={selection}
+          containerWidth={containerWidth}
+          focused={focused}
+        />
+      )}
 
-      {/* Transparent contenteditable (captures input, shows native caret) */}
-      <div
-        ref={editableRef}
-        className="hybrid-chatbox__editable"
-        contentEditable
-        suppressContentEditableWarning
-        onInput={syncText}
+      {/* Hidden textarea for input capture */}
+      <textarea
+        ref={textareaRef}
+        className="hybrid-chatbox__textarea"
+        onInput={handleInput}
         onKeyDown={handleKeyDown}
         onFocus={() => setFocused(true)}
         onBlur={() => setFocused(false)}
         spellCheck
+        autoComplete="off"
+        defaultValue={source}
       />
     </div>
   )
