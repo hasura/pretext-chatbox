@@ -128,7 +128,7 @@ body {
   outline: none;
   resize: none;
   color: transparent;
-  caret-color: #4a9eff;
+  caret-color: transparent;  /* native caret hidden — custom cursor in RichOverlay */
   z-index: 2;
   white-space: pre-wrap;
   word-break: break-word;

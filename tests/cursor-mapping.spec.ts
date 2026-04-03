@@ -71,13 +71,13 @@ test.describe('Core Type System (in-browser)', () => {
       return {
         mappings: map.mappings.map(m => ({
           isAtomic: m.isAtomic,
-          sourceStart: m.sourceStart,
-          sourceEnd: m.sourceEnd,
-          visualStart: m.visualStart,
-          visualEnd: m.visualEnd,
+          sourceStart: m.sourceStart as number,
+          sourceEnd: m.sourceEnd as number,
+          visualStart: m.visualStart as number,
+          visualEnd: m.visualEnd as number,
         })),
-        totalSourceLength: map.totalSourceLength,
-        totalVisualLength: map.totalVisualLength,
+        totalSourceLength: map.totalSourceLength as number,
+        totalVisualLength: map.totalVisualLength as number,
       }
     })
 
@@ -161,9 +161,6 @@ test.describe('Core Type System (in-browser)', () => {
   })
 
   test('cursor position can never be inside an atomic', async ({ page }) => {
-    // This test verifies the TYPE SYSTEM guarantee:
-    // CursorPosition is either TextPosition or AtomicBoundary.
-    // There's no variant that allows offset within a mention.
     const result = await page.evaluate(async () => {
       const { parseDocument } = await import('/src/core/parser.ts')
       const { movePosition, documentStart, documentEnd } = await import('/src/core/cursor.ts')
@@ -190,18 +187,186 @@ test.describe('Core Type System (in-browser)', () => {
     })
 
     // Verify no position has kind 'text' with a segmentIndex pointing to a mention
-    // The valid positions should be:
-    // text(0, 0) → text(0, 1) → atomicBoundary(1, before) → atomicBoundary(1, after) → text(2, 1)
     for (const pos of result) {
       if (pos.kind === 'text') {
-        // This is fine: text positions only exist on text segments
         expect(pos.segmentIndex).not.toBe(1) // segment 1 is the mention
       }
       if (pos.kind === 'atomicBoundary') {
-        // Atomic boundaries are always before or after
         expect(['before', 'after']).toContain(pos.side)
       }
     }
+  })
+})
+
+// ─── Branded Type / Position Mapping Tests ──────────────────────────────────
+
+test.describe('Branded Offset Mapping (in-browser)', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('.hybrid-chatbox')
+  })
+
+  test('sourceToVisual and visualToSource are inverses for text positions', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const { parseDocument } = await import('/src/core/parser.ts')
+      const { buildPositionMap, sourceToVisual, visualToSource } = await import('/src/core/position-map.ts')
+      const { sourceOffset, visualOffset } = await import('/src/types/document.ts')
+
+      const doc = parseDocument('Hello world')
+      const map = buildPositionMap(doc)
+
+      // For plain text, source offset === visual offset
+      const results: boolean[] = []
+      for (let i = 0; i <= 11; i++) {
+        const vis = sourceToVisual(map, sourceOffset(i))
+        results.push(vis === i)
+        const src = visualToSource(map, visualOffset(i))
+        results.push(src === i)
+      }
+      return results
+    })
+
+    // All should be true — plain text has 1:1 mapping
+    expect(result.every(Boolean)).toBe(true)
+  })
+
+  test('sourceToVisual maps mention source offsets to visual boundaries', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const { parseDocument } = await import('/src/core/parser.ts')
+      const { buildPositionMap, sourceToVisual } = await import('/src/core/position-map.ts')
+      const { sourceOffset } = await import('/src/types/document.ts')
+
+      // "Hi <user_mention id="Jo" /> bye"
+      // Source: Hi [28 chars for tag] bye
+      // Visual: Hi @Jo bye
+      const doc = parseDocument('Hi <user_mention id="Jo" /> bye')
+      const map = buildPositionMap(doc)
+
+      return {
+        // "Hi " = source offset 3 → visual offset 3
+        beforeMention: sourceToVisual(map, sourceOffset(3)) as number,
+        // Inside the mention tag (source offset 10) → snaps to visual boundary
+        insideMention: sourceToVisual(map, sourceOffset(10)) as number,
+        // After mention tag → visual offset = "Hi " (3) + "@Jo" (3) = 6
+        afterMention: sourceToVisual(map, sourceOffset(27)) as number,
+        totalSource: map.totalSourceLength as number,
+        totalVisual: map.totalVisualLength as number,
+      }
+    })
+
+    expect(result.beforeMention).toBe(3)
+    // Inside mention snaps to before (offset 10 is closer to start at 3 than end at 27)
+    expect(result.insideMention).toBe(3) // snaps to 'before' boundary
+    expect(result.afterMention).toBe(6)  // after mention
+  })
+
+  test('visualToSource maps visual positions correctly with mentions', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const { parseDocument } = await import('/src/core/parser.ts')
+      const { buildPositionMap, visualToSource } = await import('/src/core/position-map.ts')
+      const { visualOffset } = await import('/src/types/document.ts')
+
+      const doc = parseDocument('Hi <user_mention id="Jo" /> bye')
+      const map = buildPositionMap(doc)
+
+      return {
+        // Visual offset 3 = start of mention → source offset = start of mention tag
+        atMentionStart: visualToSource(map, visualOffset(3)) as number,
+        // Visual offset 4 = inside "@Jo" visually → snaps to boundary
+        insideMentionVisual: visualToSource(map, visualOffset(4)) as number,
+        // Visual offset 6 = after mention → source offset = after mention tag
+        afterMention: visualToSource(map, visualOffset(6)) as number,
+      }
+    })
+
+    expect(result.atMentionStart).toBe(3) // source start of mention
+    // Visual offset 4 is inside the 3-char visual "@Jo" — snaps to after (closer to end at 6)
+    expect(result.afterMention).toBe(27) // source end of mention tag
+  })
+
+  test('sourceToPosition snaps offsets inside mention to atomic boundaries', async ({ page }) => {
+    const result = await page.evaluate(async () => {
+      const { parseDocument } = await import('/src/core/parser.ts')
+      const { buildPositionMap, sourceToPosition, positionToSource } = await import('/src/core/position-map.ts')
+      const { sourceOffset } = await import('/src/types/document.ts')
+
+      // "X<user_mention id="Y" />Z"
+      const doc = parseDocument('X<user_mention id="Y" />Z')
+      const map = buildPositionMap(doc)
+
+      // Source offset 1 = boundary between "X" and mention tag
+      // (maps to end of text segment, not inside mention)
+      const pos1 = sourceToPosition(map, sourceOffset(1))
+      // Source offset 5 = inside mention tag (closer to start)
+      const pos5 = sourceToPosition(map, sourceOffset(5))
+      // Source offset 20 = inside mention tag (closer to end)
+      const pos20 = sourceToPosition(map, sourceOffset(20))
+
+      // Calculate the mention tag length for assertions
+      const mentionTag = '<user_mention id="Y" />'
+      const mentionEnd = 1 + mentionTag.length  // = 24
+
+      return {
+        pos1: { kind: pos1.kind, ...(pos1.kind === 'atomicBoundary' ? { side: pos1.side } : { offset: pos1.kind === 'text' ? pos1.offset : undefined }) },
+        pos5: { kind: pos5.kind, ...(pos5.kind === 'atomicBoundary' ? { side: pos5.side } : {}) },
+        pos20: { kind: pos20.kind, ...(pos20.kind === 'atomicBoundary' ? { side: pos20.side } : {}) },
+        // Round-trip: snap to boundary then back to source
+        snapped1: positionToSource(map, pos1) as number,
+        snapped5: positionToSource(map, pos5) as number,
+        snapped20: positionToSource(map, pos20) as number,
+        mentionEnd,
+      }
+    })
+
+    // Offset 1 is at the text/mention boundary — resolves to text segment end
+    expect(result.pos1.kind).toBe('text')
+    expect(result.pos1.offset).toBe(1) // end of "X"
+
+    // Offsets truly inside the mention snap to atomicBoundary
+    expect(result.pos5.kind).toBe('atomicBoundary')
+    expect(result.pos5.side).toBe('before') // closer to start
+    expect(result.pos20.kind).toBe('atomicBoundary')
+    expect(result.pos20.side).toBe('after') // closer to end
+
+    // Snapped source offsets are at the tag boundaries, not inside
+    expect(result.snapped1).toBe(1) // boundary position
+    expect(result.snapped5).toBe(1) // snapped to before
+    expect(result.snapped20).toBe(result.mentionEnd) // snapped to after (end of tag)
+  })
+
+  test('setSelectionRange receives source offsets, not visual offsets', async ({ page }) => {
+    // This test verifies BUG 3 is fixed: the textarea receives SOURCE offsets
+    const result = await page.evaluate(async () => {
+      const { parseDocument } = await import('/src/core/parser.ts')
+      const { buildPositionMap, positionToSource, positionToVisual } = await import('/src/core/position-map.ts')
+      const { atomicBoundary } = await import('/src/types/document.ts')
+
+      const doc = parseDocument('Hello <user_mention id="John" /> how are you')
+      const map = buildPositionMap(doc)
+
+      // Position: after the mention
+      const pos = atomicBoundary(1, 'after')
+      const sourcePos = positionToSource(map, pos) as number
+      const visualPos = positionToVisual(map, pos) as number
+
+      return {
+        sourcePos,
+        visualPos,
+        // These must be DIFFERENT — mixing them was the bug
+        areDifferent: sourcePos !== visualPos,
+        // setSelectionRange should use sourcePos, NOT visualPos
+        sourceText: doc.source,
+        sourceLength: doc.source.length,
+      }
+    })
+
+    // The source offset after the mention tag is much larger than the visual offset
+    expect(result.areDifferent).toBe(true)
+    expect(result.sourcePos).toBeGreaterThan(result.visualPos)
+    // Source: "Hello " (6) + '<user_mention id="John" />' (26) = 32
+    // Visual: "Hello " (6) + "@John" (5) = 11
+    expect(result.sourcePos).toBe(32)
+    expect(result.visualPos).toBe(11)
   })
 })
 
@@ -277,7 +442,7 @@ test.describe('Visual: Mention Pill Rendering', () => {
     await expect(pills).toHaveCount(0)
   })
 
-  test('custom cursor blinks when focused', async ({ page }, testInfo) => {
+  test('custom cursor visible when focused (no duplicate native caret)', async ({ page }, testInfo) => {
     const project = testInfo.project.name
     await page.click('button:text("@mention")')
     await page.waitForTimeout(200)
@@ -288,8 +453,15 @@ test.describe('Visual: Mention Pill Rendering', () => {
 
     await page.screenshot({ path: ss('06-cursor-visible', project) })
 
+    // Custom cursor should be visible
     const cursor = page.locator('.rich-overlay__cursor')
     await expect(cursor).toBeVisible()
+
+    // Native caret should be hidden (caret-color: transparent)
+    const caretColor = await page.locator('.hybrid-chatbox__textarea').evaluate(
+      el => getComputedStyle(el).caretColor
+    )
+    expect(caretColor).toBe('rgba(0, 0, 0, 0)')
   })
 
   test('send message with mention and verify clear', async ({ page }, testInfo) => {
@@ -311,5 +483,76 @@ test.describe('Visual: Mention Pill Rendering', () => {
     // Chatbox should be cleared (show placeholder)
     const placeholder = page.locator('.hybrid-chatbox__placeholder')
     await expect(placeholder).toBeVisible()
+  })
+})
+
+// ─── Bug Regression Tests ───────────────────────────────────────────────────
+
+test.describe('Bug Regression: Cursor Mapping', () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto('/')
+    await page.waitForSelector('.hybrid-chatbox')
+  })
+
+  test('BUG 1 regression: only one cursor visible (no duplicates)', async ({ page }) => {
+    await page.click('button:text("@mention")')
+    await page.waitForTimeout(200)
+    await page.click('.hybrid-chatbox')
+    await page.waitForTimeout(200)
+
+    // Custom cursor is visible
+    const customCursor = page.locator('.rich-overlay__cursor')
+    await expect(customCursor).toBeVisible()
+
+    // Native caret is transparent
+    const caretColor = await page.locator('.hybrid-chatbox__textarea').evaluate(
+      el => getComputedStyle(el).caretColor
+    )
+    expect(caretColor).toBe('rgba(0, 0, 0, 0)')
+  })
+
+  test('BUG 2 regression: arrow keys update React selection state', async ({ page }) => {
+    // Load text with a mention, focus, press arrow keys
+    await page.click('button:text("@mention")')
+    await page.waitForTimeout(200)
+    await page.click('.hybrid-chatbox')
+    await page.waitForTimeout(200)
+
+    // Press Left arrow several times
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.press('ArrowLeft')
+    await page.keyboard.press('ArrowLeft')
+    await page.waitForTimeout(100)
+
+    // The custom cursor should still be visible (state is synced)
+    const cursor = page.locator('.rich-overlay__cursor')
+    await expect(cursor).toBeVisible()
+  })
+
+  test('BUG 3 regression: textarea selection uses source offsets', async ({ page }) => {
+    // This verifies that setSelectionRange uses source offsets, not visual
+    await page.click('button:text("@mention")')
+    await page.waitForTimeout(200)
+    await page.click('.hybrid-chatbox')
+    await page.waitForTimeout(200)
+
+    // The textarea value should contain the raw source (with XML tags)
+    const textareaValue = await page.locator('.hybrid-chatbox__textarea').inputValue()
+    expect(textareaValue).toContain('<user_mention')
+    expect(textareaValue).toContain('/>')
+
+    // Get the textarea's selectionStart — it should be a valid source offset
+    const selStart = await page.locator('.hybrid-chatbox__textarea').evaluate(
+      (el: HTMLTextAreaElement) => el.selectionStart
+    )
+    // Selection should be at a valid position (not inside a tag)
+    // It should be either before the tag, after the tag, or in text
+    const source = textareaValue
+    const mentionStart = source.indexOf('<user_mention')
+    const mentionEnd = source.indexOf('/>') + 2
+
+    // selStart should NOT be between mentionStart and mentionEnd (exclusive)
+    const isInsideMention = selStart > mentionStart && selStart < mentionEnd
+    expect(isInsideMention).toBe(false)
   })
 })

@@ -1,3 +1,17 @@
+// ─── Branded Offset Types ───────────────────────────────────────────────────
+// Make illegal state unrepresentable: mixing source and visual offsets
+// is a COMPILE ERROR, not a runtime bug.
+//
+// SourceOffset: byte position in the raw XML source string
+// VisualOffset: character position in what the user sees on screen
+
+export type SourceOffset = number & { readonly __brand: 'SourceOffset' }
+export type VisualOffset = number & { readonly __brand: 'VisualOffset' }
+
+// Smart constructors — the ONLY way to create offsets
+export function sourceOffset(n: number): SourceOffset { return n as SourceOffset }
+export function visualOffset(n: number): VisualOffset { return n as VisualOffset }
+
 // ─── Mention Types ───────────────────────────────────────────────────────────
 // Tagged union: every mention variant is exhaustively matchable.
 
@@ -80,17 +94,17 @@ export function positionsEqual(a: CursorPosition, b: CursorPosition): boolean {
 
 export type SegmentMapping = {
   readonly segmentIndex: number
-  readonly sourceStart: number
-  readonly sourceEnd: number    // exclusive
-  readonly visualStart: number
-  readonly visualEnd: number    // exclusive
+  readonly sourceStart: SourceOffset
+  readonly sourceEnd: SourceOffset    // exclusive
+  readonly visualStart: VisualOffset
+  readonly visualEnd: VisualOffset    // exclusive
   readonly isAtomic: boolean
 }
 
 export type PositionMap = {
   readonly mappings: readonly SegmentMapping[]
-  readonly totalSourceLength: number
-  readonly totalVisualLength: number
+  readonly totalSourceLength: SourceOffset
+  readonly totalVisualLength: VisualOffset
 }
 
 // ─── Display ─────────────────────────────────────────────────────────────────
