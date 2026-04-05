@@ -1,0 +1,284 @@
+import { useRef, useState, useCallback, useEffect } from 'react';
+
+interface User {
+  username: string;
+  displayName: string;
+}
+
+const MOCK_USERS: User[] = [
+  { username: 'tanmai', displayName: 'Tanmai Gopal' },
+  { username: 'alice', displayName: 'Alice Chen' },
+  { username: 'bob', displayName: 'Bob Smith' },
+  { username: 'carol', displayName: 'Carol Davis' },
+  { username: 'dave', displayName: 'Dave Wilson' },
+  { username: 'eve', displayName: 'Eve Martinez' },
+  { username: 'frank', displayName: 'Frank Lee' },
+  { username: 'grace', displayName: 'Grace Kim' },
+];
+
+const MENTION_REGEX = /@(\w+)/g;
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function highlightMentions(text: string): string {
+  return escapeHtml(text).replace(MENTION_REGEX, (match, username) => {
+    if (MOCK_USERS.some((u) => u.username === username)) {
+      return `<span class="mention">${match}</span>`;
+    }
+    return match;
+  });
+}
+
+function getPlainText(el: HTMLElement): string {
+  // Walk the DOM to extract text, converting <br> and block boundaries to newlines
+  let text = '';
+  for (const node of el.childNodes) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      text += node.textContent;
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const tag = (node as HTMLElement).tagName;
+      if (tag === 'BR') {
+        text += '\n';
+      } else if (tag === 'DIV' || tag === 'P') {
+        if (text.length > 0 && !text.endsWith('\n')) text += '\n';
+        text += getPlainText(node as HTMLElement);
+      } else {
+        text += getPlainText(node as HTMLElement);
+      }
+    }
+  }
+  return text;
+}
+
+interface SimpleChatboxProps {
+  onSend?: (message: string) => void;
+  placeholder?: string;
+}
+
+export default function SimpleChatbox({
+  onSend,
+  placeholder = 'Type a message... Use @ to mention someone',
+}: SimpleChatboxProps) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [dropdownFilter, setDropdownFilter] = useState('');
+  const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isEmpty, setIsEmpty] = useState(true);
+
+  const filteredUsers = MOCK_USERS.filter((u) =>
+    u.username.toLowerCase().startsWith(dropdownFilter.toLowerCase())
+  );
+
+  const saveCaret = useCallback((): number => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount || !editorRef.current) return 0;
+    const range = sel.getRangeAt(0).cloneRange();
+    range.selectNodeContents(editorRef.current);
+    range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
+    return range.toString().length;
+  }, []);
+
+  const restoreCaret = useCallback((offset: number) => {
+    const el = editorRef.current;
+    if (!el) return;
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    let pos = 0;
+    let node: Text | null;
+    while ((node = walker.nextNode() as Text | null)) {
+      const len = node.length;
+      if (pos + len >= offset) {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.setStart(node, offset - pos);
+        range.collapse(true);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+        return;
+      }
+      pos += len;
+    }
+  }, []);
+
+  const rehighlight = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const caretPos = saveCaret();
+    const plain = getPlainText(el);
+    // Convert newlines to <br> for contenteditable, then highlight mentions
+    const lines = plain.split('\n');
+    const html = lines.map((line) => highlightMentions(line)).join('<br>');
+    el.innerHTML = html;
+    restoreCaret(caretPos);
+  }, [saveCaret, restoreCaret]);
+
+  const checkForMentionTrigger = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const plain = getPlainText(el);
+    const caretPos = saveCaret();
+    const textBeforeCaret = plain.slice(0, caretPos);
+    const match = textBeforeCaret.match(/@(\w*)$/);
+    if (match) {
+      setShowDropdown(true);
+      setDropdownFilter(match[1]);
+      setSelectedIndex(0);
+    } else {
+      setShowDropdown(false);
+    }
+  }, [saveCaret]);
+
+  const handleInput = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    setIsEmpty(getPlainText(el).trim().length === 0);
+    rehighlight();
+    checkForMentionTrigger();
+  }, [rehighlight, checkForMentionTrigger]);
+
+  const insertMention = useCallback(
+    (user: User) => {
+      const el = editorRef.current;
+      if (!el) return;
+      el.focus();
+
+      // Delete the partial @query before inserting
+      const plain = getPlainText(el);
+      const caretPos = saveCaret();
+      const textBeforeCaret = plain.slice(0, caretPos);
+      const match = textBeforeCaret.match(/@(\w*)$/);
+      if (match) {
+        // Select and delete the @partial text
+        const deleteCount = match[0].length;
+        for (let i = 0; i < deleteCount; i++) {
+          document.execCommand('delete', false);
+        }
+      }
+
+      document.execCommand(
+        'insertHTML',
+        false,
+        `<span class="mention">@${user.username}</span>&nbsp;`
+      );
+      setShowDropdown(false);
+      setIsEmpty(false);
+      // Re-run highlight after insertion
+      setTimeout(() => rehighlight(), 0);
+    },
+    [saveCaret, rehighlight]
+  );
+
+  const handleSend = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const text = getPlainText(el).trim();
+    if (!text) return;
+    onSend?.(text);
+    el.innerHTML = '';
+    setIsEmpty(true);
+    setShowDropdown(false);
+  }, [onSend]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (showDropdown) {
+        if (e.key === 'ArrowDown') {
+          e.preventDefault();
+          setSelectedIndex((i) => Math.min(i + 1, filteredUsers.length - 1));
+          return;
+        }
+        if (e.key === 'ArrowUp') {
+          e.preventDefault();
+          setSelectedIndex((i) => Math.max(i - 1, 0));
+          return;
+        }
+        if (e.key === 'Enter' || e.key === 'Tab') {
+          if (filteredUsers.length > 0) {
+            e.preventDefault();
+            insertMention(filteredUsers[selectedIndex]);
+            return;
+          }
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          setShowDropdown(false);
+          return;
+        }
+      }
+
+      if (e.key === 'Enter') {
+        if (!e.shiftKey) {
+          e.preventDefault();
+          handleSend();
+        } else {
+          e.preventDefault();
+          document.execCommand('insertLineBreak');
+        }
+      }
+    },
+    [showDropdown, filteredUsers, selectedIndex, insertMention, handleSend]
+  );
+
+  const handlePaste = useCallback((e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const text = e.clipboardData?.getData('text/plain') || '';
+    document.execCommand('insertText', false, text);
+  }, []);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (editorRef.current && !editorRef.current.contains(e.target as Node)) {
+        setShowDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  return (
+    <div className="simple-chatbox">
+      <div className="chatbox-wrapper">
+        {isEmpty && (
+          <div className="chatbox-placeholder">{placeholder}</div>
+        )}
+        <div
+          ref={editorRef}
+          className="chatbox-editor"
+          contentEditable
+          onInput={handleInput}
+          onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
+          role="textbox"
+          aria-multiline="true"
+          aria-placeholder={placeholder}
+        />
+        {showDropdown && filteredUsers.length > 0 && (
+          <div className="mention-dropdown">
+            {filteredUsers.map((user, i) => (
+              <div
+                key={user.username}
+                className={`mention-option ${i === selectedIndex ? 'selected' : ''}`}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  insertMention(user);
+                }}
+                onMouseEnter={() => setSelectedIndex(i)}
+              >
+                <span className="mention-username">@{user.username}</span>
+                <span className="mention-name">{user.displayName}</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      <button className="send-button" onClick={handleSend} disabled={isEmpty}>
+        Send
+      </button>
+    </div>
+  );
+}

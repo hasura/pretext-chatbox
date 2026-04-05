@@ -1,215 +1,177 @@
+:root {
+  --text: #374151;
+  --text-light: #9ca3af;
+  --bg: #ffffff;
+  --bg-secondary: #f9fafb;
+  --border: #e5e7eb;
+  --accent: #4a9eff;
+  --accent-hover: #3b82f6;
+  --shadow: rgba(0, 0, 0, 0.08) 0 2px 8px;
+
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e5e7eb;
+    --text-light: #6b7280;
+    --bg: #111827;
+    --bg-secondary: #1f2937;
+    --border: #374151;
+    --accent: #4a9eff;
+    --accent-hover: #60a5fa;
+    --shadow: rgba(0, 0, 0, 0.3) 0 2px 8px;
+  }
+}
+
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
 }
 
 body {
-  font-family: Inter, -apple-system, BlinkMacSystemFont, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
-  background: #0a0a0a;
-  color: #e5e5e5;
+  margin: 0;
+  padding: 0;
 }
 
-.app {
+/* Mention styling */
+.mention {
+  color: #4a9eff;
+  font-weight: 500;
+}
+
+/* Chat app layout */
+.chat-app {
   max-width: 640px;
   margin: 0 auto;
-  height: 100dvh;
+  padding: 24px;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-.app__header {
-  padding: 24px 16px 16px;
-  border-bottom: 1px solid #222;
-}
-
-.app__header h1 {
-  font-size: 20px;
+.chat-app h1 {
+  font-size: 24px;
   font-weight: 600;
-  color: #fff;
+  margin: 0 0 16px;
 }
 
-.app__subtitle {
-  font-size: 13px;
-  color: #666;
-  margin-top: 4px;
-}
-
-.app__messages {
+.messages {
   flex: 1;
   overflow-y: auto;
-  padding: 16px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  margin-bottom: 16px;
 }
 
-.app__empty {
-  color: #444;
+.empty-state {
+  color: var(--text-light);
   text-align: center;
   margin-top: 40px;
-  font-size: 14px;
-}
-
-.app__presets {
-  padding: 8px 16px;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.app__preset-btn {
-  font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 6px;
-  border: 1px solid #333;
-  background: #1a1a1a;
-  color: #aaa;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.app__preset-btn:hover {
-  background: #252525;
-  color: #e5e5e5;
 }
 
 .message {
-  align-self: flex-end;
-  max-width: 80%;
-}
-
-.message__text {
-  background: #1a3a5c;
-  color: #e5e5e5;
-  padding: 8px 14px;
-  border-radius: 16px 16px 4px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
   white-space: pre-wrap;
-  word-break: break-word;
-  font-size: 16px;
-  line-height: 24px;
 }
 
-.app__input {
-  padding: 12px 16px;
-  border-top: 1px solid #222;
+/* SimpleChatbox styles */
+.simple-chatbox {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
 }
 
-/* ─── Hybrid Chatbox ──────────────────────────────────────────────────────── */
-
-.hybrid-chatbox {
+.chatbox-wrapper {
+  flex: 1;
   position: relative;
-  border: 1px solid #333;
-  border-radius: 12px;
-  background: #141414;
-  transition: border-color 0.15s, height 0.1s ease-out;
-  overflow: hidden;
-  cursor: text;
 }
 
-.hybrid-chatbox--focused {
-  border-color: #4a9eff;
-  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.15);
-}
-
-/* Hidden textarea — captures all native input */
-.hybrid-chatbox__textarea {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  padding: 12px 16px;
-  font: 16px Inter, -apple-system, BlinkMacSystemFont, sans-serif;
-  line-height: 24px;
-  background: transparent;
-  border: none;
+.chatbox-editor {
+  min-height: 40px;
+  max-height: 200px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
   outline: none;
-  resize: none;
-  color: transparent;
-  caret-color: transparent;  /* native caret hidden — custom cursor in RichOverlay */
-  z-index: 2;
-  white-space: pre-wrap;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--bg);
   word-break: break-word;
-  overflow-wrap: break-word;
 }
 
-.hybrid-chatbox__textarea::selection {
-  background: rgba(74, 158, 255, 0.3);
+.chatbox-editor:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.2);
 }
 
-/* ─── Rich Overlay ────────────────────────────────────────────────────────── */
-
-.rich-overlay {
+.chatbox-placeholder {
   position: absolute;
-  inset: 0;
-  padding: 12px 16px;
+  top: 8px;
+  left: 12px;
+  color: var(--text-light);
   pointer-events: none;
-  z-index: 1;
-}
-
-.rich-overlay__text {
-  font: 16px Inter, -apple-system, BlinkMacSystemFont, sans-serif;
-  line-height: 24px;
-  color: #e5e5e5;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow-wrap: break-word;
-}
-
-/* Custom cursor (blinking caret) */
-.rich-overlay__cursor {
-  position: absolute;
-  width: 2px;
-  height: 20px;
-  background: #4a9eff;
-  border-radius: 1px;
-  animation: cursor-blink 1s step-end infinite;
-  pointer-events: none;
-}
-
-@keyframes cursor-blink {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0; }
-}
-
-.hybrid-chatbox__placeholder {
-  color: #555;
-}
-
-/* ─── Mention Pills ───────────────────────────────────────────────────────── */
-
-.mention-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-size: 14px;
-  font-weight: 500;
-  line-height: 22px;
-  vertical-align: baseline;
-  white-space: nowrap;
   user-select: none;
 }
 
-.mention-pill--user {
-  background: rgba(74, 144, 226, 0.2);
-  color: #6cb4ff;
+.send-button {
+  padding: 8px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 8px;
+  font-size: 16px;
+  cursor: pointer;
+  white-space: nowrap;
 }
 
-.mention-pill--promptql {
-  background: rgba(168, 85, 247, 0.2);
-  color: #c084fc;
+.send-button:hover:not(:disabled) {
+  background: var(--accent-hover);
 }
 
-.mention-pill__icon {
-  font-weight: 600;
-  font-size: 13px;
-  opacity: 0.7;
+.send-button:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
-.mention-pill__name {
-  font-size: 14px;
+/* Mention dropdown */
+.mention-dropdown {
+  position: absolute;
+  bottom: 100%;
+  left: 0;
+  margin-bottom: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  overflow: hidden;
+  min-width: 200px;
+  z-index: 10;
+}
+
+.mention-option {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+
+.mention-option.selected {
+  background: var(--bg-secondary);
+}
+
+.mention-username {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.mention-name {
+  color: var(--text-light);
 }

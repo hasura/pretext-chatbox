@@ -1,94 +1,35 @@
-import { useState, useRef, useCallback } from 'react'
-import { HybridChatbox } from './HybridChatbox'
+import { useState } from 'react';
+import SimpleChatbox from './SimpleChatbox';
+import './App.css';
 
-type Message = {
-  id: number
-  source: string
+interface Message {
+  id: number;
+  text: string;
 }
 
-let nextId = 1
+function App() {
+  const [messages, setMessages] = useState<Message[]>([]);
 
-const PRESETS = [
-  {
-    label: 'Plain text',
-    source: 'Hello world, this is a plain message',
-  },
-  {
-    label: '@mention',
-    source: 'Hey <user_mention id="Maya Chen" /> can you review this PR?',
-  },
-  {
-    label: 'Multiple mentions',
-    source: '<user_mention id="Maya Chen" /> and <user_mention id="Alex Kim" /> please check <promptql_mention /> results',
-  },
-  {
-    label: 'Mention at start',
-    source: '<user_mention id="Maya Chen" /> what do you think?',
-  },
-  {
-    label: 'Mention at end',
-    source: 'Assigned to <user_mention id="Alex Kim" />',
-  },
-]
-
-export default function App() {
-  const [messages, setMessages] = useState<Message[]>([])
-  const [activeSource, setActiveSource] = useState('')
-  const chatboxKey = useRef(0)
-
-  const handleSend = useCallback((source: string) => {
-    setMessages(prev => [...prev, { id: nextId++, source }])
-    chatboxKey.current++
-    setActiveSource('')
-  }, [])
-
-  const loadPreset = useCallback((source: string) => {
-    chatboxKey.current++
-    setActiveSource(source)
-  }, [])
+  const handleSend = (text: string) => {
+    setMessages((prev) => [...prev, { id: Date.now(), text }]);
+  };
 
   return (
-    <div className="app">
-      <header className="app__header">
-        <h1>pretext-chatbox</h1>
-        <p className="app__subtitle">
-          CM6-style cursor mapping with type-driven @mention pills
-        </p>
-      </header>
-
-      <div className="app__messages">
+    <div className="chat-app">
+      <h1>Simple Chatbox Demo</h1>
+      <div className="messages">
         {messages.length === 0 && (
-          <div className="app__empty">
-            Try the presets below, or type a message.<br />
-            Mentions use: &lt;user_mention id="Name" /&gt;
-          </div>
+          <p className="empty-state">No messages yet. Type below to start chatting!</p>
         )}
-        {messages.map(msg => (
+        {messages.map((msg) => (
           <div key={msg.id} className="message">
-            <div className="message__text">{msg.source}</div>
+            {msg.text}
           </div>
         ))}
       </div>
-
-      <div className="app__presets">
-        {PRESETS.map(p => (
-          <button
-            key={p.label}
-            className="app__preset-btn"
-            onClick={() => loadPreset(p.source)}
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="app__input">
-        <HybridChatbox
-          key={chatboxKey.current}
-          onSend={handleSend}
-          initialSource={activeSource}
-        />
-      </div>
+      <SimpleChatbox onSend={handleSend} />
     </div>
-  )
+  );
 }
+
+export default App;
