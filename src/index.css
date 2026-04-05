@@ -43,6 +43,11 @@ body {
   font-weight: 500;
 }
 
+.chatbox-editor .mention {
+  color: #4a9eff;
+  font-weight: 500;
+}
+
 /* Chat app layout */
 .chat-app {
   max-width: 640px;
