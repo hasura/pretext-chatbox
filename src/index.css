@@ -37,12 +37,7 @@ body {
   padding: 0;
 }
 
-/* Mention styling */
-.mention {
-  color: #4a9eff;
-  font-weight: 500;
-}
-
+/* Mention styling — scoped to .chatbox-editor for higher specificity */
 .chatbox-editor .mention {
   color: #4a9eff;
   font-weight: 500;
