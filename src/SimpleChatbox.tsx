@@ -55,6 +55,12 @@ function getPlainText(el: HTMLElement): string {
   return text;
 }
 
+function getNodeIndex(node: Node): number {
+  return Array.from(node.parentNode?.childNodes ?? []).findIndex(
+    (child) => child === node
+  );
+}
+
 interface SimpleChatboxProps {
   onSend?: (message: string) => void;
   placeholder?: string;
@@ -80,28 +86,78 @@ export default function SimpleChatbox({
     const range = sel.getRangeAt(0).cloneRange();
     range.selectNodeContents(editorRef.current);
     range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
-    return range.toString().length;
+
+    const container = document.createElement('div');
+    container.append(range.cloneContents());
+    return getPlainText(container).length;
   }, []);
 
   const restoreCaret = useCallback((offset: number) => {
     const el = editorRef.current;
     if (!el) return;
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const sel = window.getSelection();
+    const range = document.createRange();
     let pos = 0;
-    let node: Text | null;
-    while ((node = walker.nextNode() as Text | null)) {
-      const len = node.length;
-      if (pos + len >= offset) {
-        const sel = window.getSelection();
-        const range = document.createRange();
-        range.setStart(node, offset - pos);
-        range.collapse(true);
-        sel?.removeAllRanges();
-        sel?.addRange(range);
-        return;
+
+    const applyRange = () => {
+      range.collapse(true);
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    };
+
+    const walk = (node: Node): boolean => {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const textNode = node as Text;
+        const nextPos = pos + textNode.length;
+        if (offset <= nextPos) {
+          range.setStart(textNode, offset - pos);
+          applyRange();
+          return true;
+        }
+        pos = nextPos;
+        return false;
       }
-      pos += len;
+
+      if (node.nodeType !== Node.ELEMENT_NODE) {
+        return false;
+      }
+
+      const element = node as HTMLElement;
+      if (element.tagName === 'BR') {
+        const parent = element.parentNode;
+        if (!parent) return false;
+
+        const nodeIndex = getNodeIndex(element);
+        if (offset <= pos) {
+          range.setStart(parent, nodeIndex);
+          applyRange();
+          return true;
+        }
+
+        pos += 1;
+        if (offset <= pos) {
+          range.setStart(parent, nodeIndex + 1);
+          applyRange();
+          return true;
+        }
+
+        return false;
+      }
+
+      for (const child of element.childNodes) {
+        if (walk(child)) return true;
+      }
+
+      return false;
+    };
+
+    for (const child of el.childNodes) {
+      if (walk(child)) return;
     }
+
+    range.selectNodeContents(el);
+    range.collapse(false);
+    applyRange();
   }, []);
 
   const rehighlight = useCallback(() => {
