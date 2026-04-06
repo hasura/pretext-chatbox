@@ -55,6 +55,19 @@ function getPlainText(el: HTMLElement): string {
   return text;
 }
 
+function getMentionElement(node: Node | null, root: HTMLElement): HTMLElement | null {
+  if (!node) return null;
+  const element = node.nodeType === Node.ELEMENT_NODE
+    ? (node as Element)
+    : node.parentElement;
+  const mention = element?.closest('.mention');
+  return mention instanceof HTMLElement && root.contains(mention) ? mention : null;
+}
+
+function isKnownMention(text: string): boolean {
+  return MOCK_USERS.some((u) => `@${u.username}` === text);
+}
+
 interface SimpleChatboxProps {
   onSend?: (message: string) => void;
   placeholder?: string;
@@ -65,6 +78,7 @@ export default function SimpleChatbox({
   placeholder = 'Type a message... Use @ to mention someone',
 }: SimpleChatboxProps) {
   const editorRef = useRef<HTMLDivElement>(null);
+  const mentionEditPendingRef = useRef(false);
   const [showDropdown, setShowDropdown] = useState(false);
   const [dropdownFilter, setDropdownFilter] = useState('');
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -198,6 +212,35 @@ export default function SimpleChatbox({
     restoreCaret(caretPos);
   }, [saveCaret, restoreCaret]);
 
+  const queueRehighlight = useCallback(() => {
+    window.setTimeout(() => rehighlight(), 0);
+  }, [rehighlight]);
+
+  const selectionTouchesMention = useCallback(() => {
+    const el = editorRef.current;
+    const sel = window.getSelection();
+    if (!el || !sel || !sel.rangeCount) return false;
+
+    const range = sel.getRangeAt(0);
+    if (getMentionElement(range.startContainer, el) || getMentionElement(range.endContainer, el)) {
+      return true;
+    }
+
+    return Array.from(el.querySelectorAll<HTMLElement>('.mention')).some((mention) =>
+      range.intersectsNode(mention)
+    );
+  }, []);
+
+  const hasModifiedMentionSpan = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return false;
+
+    return Array.from(el.querySelectorAll<HTMLElement>('.mention')).some((mention) => {
+      const text = mention.textContent ?? '';
+      return !isKnownMention(text);
+    });
+  }, []);
+
   const checkForMentionTrigger = useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
@@ -214,13 +257,24 @@ export default function SimpleChatbox({
     }
   }, [saveCaret]);
 
+  // Track native edits that begin inside a mention so we only rebuild markup when needed.
+  const handleBeforeInput = useCallback(() => {
+    mentionEditPendingRef.current = selectionTouchesMention();
+  }, [selectionTouchesMention]);
+
   const handleInput = useCallback(() => {
     const el = editorRef.current;
     if (!el) return;
+    const shouldRehighlight = mentionEditPendingRef.current || hasModifiedMentionSpan();
+    mentionEditPendingRef.current = false;
+
+    if (shouldRehighlight) {
+      rehighlight();
+    }
+
     setIsEmpty(getPlainText(el).trim().length === 0);
-    rehighlight();
     checkForMentionTrigger();
-  }, [rehighlight, checkForMentionTrigger]);
+  }, [checkForMentionTrigger, hasModifiedMentionSpan, rehighlight]);
 
   const insertMention = useCallback(
     (user: User) => {
@@ -249,9 +303,9 @@ export default function SimpleChatbox({
       setShowDropdown(false);
       setIsEmpty(false);
       // Re-run highlight after insertion
-      setTimeout(() => rehighlight(), 0);
+      queueRehighlight();
     },
-    [saveCaret, rehighlight]
+    [queueRehighlight, saveCaret]
   );
 
   const handleSend = useCallback(() => {
@@ -305,11 +359,15 @@ export default function SimpleChatbox({
     [showDropdown, filteredUsers, selectedIndex, insertMention, handleSend]
   );
 
-  const handlePaste = useCallback((e: React.ClipboardEvent) => {
-    e.preventDefault();
-    const text = e.clipboardData?.getData('text/plain') || '';
-    document.execCommand('insertText', false, text);
-  }, []);
+  const handlePaste = useCallback(
+    (e: React.ClipboardEvent) => {
+      e.preventDefault();
+      const text = e.clipboardData?.getData('text/plain') || '';
+      document.execCommand('insertText', false, text);
+      queueRehighlight();
+    },
+    [queueRehighlight]
+  );
 
   // Close dropdown on outside click
   useEffect(() => {
@@ -332,6 +390,7 @@ export default function SimpleChatbox({
           ref={editorRef}
           className="chatbox-editor"
           contentEditable
+          onBeforeInput={handleBeforeInput}
           onInput={handleInput}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
