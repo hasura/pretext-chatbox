@@ -77,31 +77,113 @@ export default function SimpleChatbox({
   const saveCaret = useCallback((): number => {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount || !editorRef.current) return 0;
-    const range = sel.getRangeAt(0).cloneRange();
-    range.selectNodeContents(editorRef.current);
-    range.setEnd(sel.getRangeAt(0).startContainer, sel.getRangeAt(0).startOffset);
-    return range.toString().length;
+
+    const range = sel.getRangeAt(0);
+    const el = editorRef.current;
+
+    // Walk all nodes and count characters + BRs up to caret position
+    let offset = 0;
+    const walker = document.createTreeWalker(
+      el,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode: (node) => {
+          if (node.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT;
+          if (node.nodeName === 'BR') return NodeFilter.FILTER_ACCEPT;
+          return NodeFilter.FILTER_SKIP;
+        }
+      }
+    );
+
+    let node: Node | null;
+    while ((node = walker.nextNode())) {
+      if (node === range.startContainer) {
+        // Caret is in this text node
+        offset += range.startOffset;
+        break;
+      }
+
+      if (node.nodeType === Node.TEXT_NODE) {
+        offset += (node as Text).length;
+      } else if (node.nodeName === 'BR') {
+        offset += 1;
+      }
+
+      // Check if caret is right after a BR (parent node positioning)
+      if (range.startContainer === el || range.startContainer.nodeType === Node.ELEMENT_NODE) {
+        const container = range.startContainer as Element;
+        const children = Array.from(container.childNodes);
+        const nodeIndex = children.indexOf(node as ChildNode);
+        if (nodeIndex !== -1 && nodeIndex < range.startOffset) {
+          // We've passed this node
+        } else if (nodeIndex === range.startOffset - 1 && node.nodeName === 'BR') {
+          offset += 1;
+          break;
+        }
+      }
+    }
+
+    return offset;
   }, []);
 
-  const restoreCaret = useCallback((offset: number) => {
+  const restoreCaret = useCallback((targetOffset: number) => {
     const el = editorRef.current;
     if (!el) return;
-    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
-    let pos = 0;
-    let node: Text | null;
-    while ((node = walker.nextNode() as Text | null)) {
-      const len = node.length;
-      if (pos + len >= offset) {
-        const sel = window.getSelection();
-        const range = document.createRange();
-        range.setStart(node, offset - pos);
-        range.collapse(true);
-        sel?.removeAllRanges();
-        sel?.addRange(range);
-        return;
+
+    const walker = document.createTreeWalker(
+      el,
+      NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT,
+      {
+        acceptNode: (node) => {
+          if (node.nodeType === Node.TEXT_NODE) return NodeFilter.FILTER_ACCEPT;
+          if (node.nodeName === 'BR') return NodeFilter.FILTER_ACCEPT;
+          return NodeFilter.FILTER_SKIP;
+        }
       }
-      pos += len;
+    );
+
+    let currentOffset = 0;
+    let node: Node | null;
+
+    while ((node = walker.nextNode())) {
+      if (node.nodeType === Node.TEXT_NODE) {
+        const textNode = node as Text;
+        const len = textNode.length;
+        if (currentOffset + len >= targetOffset) {
+          // Caret goes inside this text node
+          const sel = window.getSelection();
+          const range = document.createRange();
+          range.setStart(textNode, targetOffset - currentOffset);
+          range.collapse(true);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+          return;
+        }
+        currentOffset += len;
+      } else if (node.nodeName === 'BR') {
+        currentOffset += 1;
+        if (currentOffset >= targetOffset) {
+          // Caret goes right after this BR
+          const sel = window.getSelection();
+          const range = document.createRange();
+          const parent = node.parentNode!;
+          const brIndex = Array.from(parent.childNodes).indexOf(node as ChildNode);
+          range.setStart(parent, brIndex + 1);
+          range.collapse(true);
+          sel?.removeAllRanges();
+          sel?.addRange(range);
+          return;
+        }
+      }
     }
+
+    // Fallback: put caret at end
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    range.collapse(false);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
   }, []);
 
   const rehighlight = useCallback(() => {
